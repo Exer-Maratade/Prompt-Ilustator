@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { ChangeEvent, FormEvent } from 'react'
 import './App.css'
 import { illustratorTemplates } from './data/illustratorTemplates'
@@ -25,9 +25,9 @@ type BuilderState = {
 }
 
 const providerModels: Record<Provider, string[]> = {
+  gemini: ['gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-3-flash-preview', 'gemini-3.8-flash'],
   chatgpt: ['gpt-5-mini', 'gpt-5', 'gpt-4.1'],
   claude: ['claude-sonnet-4-0', 'claude-3-7-sonnet-latest'],
-  gemini: ['gemini-2.5-pro', 'gemini-2.5-flash'],
 }
 
 const starterExamples = [
@@ -53,9 +53,25 @@ const initialBuilder: BuilderState = {
 
 function App() {
   const [activeTab, setActiveTab] = useState<'prompt-builder' | 'image-to-prompt' | 'mockup-studio'>('prompt-builder')
-  const [provider, setProvider] = useState<Provider>('chatgpt')
-  const [model, setModel] = useState(providerModels.chatgpt[0])
-  const [apiKey, setApiKey] = useState('')
+  const [provider, setProvider] = useState<Provider>(() => {
+    return (localStorage.getItem('ai_provider') as Provider) || 'gemini'
+  })
+  const [model, setModel] = useState<string>(() => {
+    const saved = localStorage.getItem('ai_model')
+    const currentProvider = (localStorage.getItem('ai_provider') as Provider) || 'gemini'
+    return saved && providerModels[currentProvider]?.includes(saved)
+      ? saved
+      : providerModels[currentProvider]?.[0] || 'gemini-3.5-flash'
+  })
+  const [apiKey, setApiKey] = useState<string>(() => {
+    return localStorage.getItem('ai_apikey') || ''
+  })
+  const [serverConfig, setServerConfig] = useState<{
+    geminiConfigured?: boolean
+    chatgptConfigured?: boolean
+    claudeConfigured?: boolean
+  }>({})
+
   const [builder, setBuilder] = useState<BuilderState>(initialBuilder)
   const [exampleText, setExampleText] = useState('')
   const [examples, setExamples] = useState<string[]>(starterExamples)
@@ -71,6 +87,34 @@ function App() {
   const [isGeneratingMockup, setIsGeneratingMockup] = useState(false)
   const [mockupAiResult, setMockupAiResult] = useState<string>('')
   const [mockupCustomArtworkUrl, setMockupCustomArtworkUrl] = useState<string | null>(null)
+
+  useEffect(() => {
+    fetch('/api/config')
+      .then((res) => res.json())
+      .then((data) => setServerConfig(data))
+      .catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    localStorage.setItem('ai_provider', provider)
+  }, [provider])
+
+  useEffect(() => {
+    localStorage.setItem('ai_model', model)
+  }, [model])
+
+  useEffect(() => {
+    if (apiKey) {
+      localStorage.setItem('ai_apikey', apiKey)
+    }
+  }, [apiKey])
+
+  const hasServerKey = useMemo(() => {
+    if (provider === 'gemini') return Boolean(serverConfig.geminiConfigured)
+    if (provider === 'chatgpt') return Boolean(serverConfig.chatgptConfigured)
+    if (provider === 'claude') return Boolean(serverConfig.claudeConfigured)
+    return false
+  }, [provider, serverConfig])
 
   const providerLabel = useMemo(() => {
     if (provider === 'chatgpt') return 'ChatGPT (OpenAI)'
@@ -205,7 +249,7 @@ function App() {
       return
     }
 
-    if (!apiKey.trim()) {
+    if (!apiKey.trim() && !hasServerKey) {
       setError(`Masukkan API key untuk ${providerLabel}.`)
       return
     }
@@ -258,7 +302,7 @@ function App() {
   }) {
     setError('')
 
-    if (!apiKey.trim()) {
+    if (!apiKey.trim() && !hasServerKey) {
       setError(`Masukkan API key untuk ${providerLabel} pada panel konfigurasi AI terlebih dahulu.`)
       setActiveTab('prompt-builder')
       return
@@ -661,6 +705,11 @@ function App() {
           apiKey={apiKey}
           providerLabel={providerLabel}
           outputLanguage={builder.outputLanguage}
+          availableModels={providerModels[provider] || []}
+          hasServerKey={hasServerKey}
+          onProviderChange={handleProviderChange}
+          onModelChange={setModel}
+          onApiKeyChange={setApiKey}
           onApplyToBuilder={handleApplyVisionToBuilder}
           onApplyToMockup={handleApplyVisionToMockup}
           onAddExamplePrompt={handleAddExamplePrompt}

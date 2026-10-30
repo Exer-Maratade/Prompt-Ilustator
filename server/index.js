@@ -148,45 +148,94 @@ async function callClaude({ apiKey, model, systemInstruction, userInstruction })
   return prompt
 }
 
+const GEMINI_FALLBACK_MODELS = [
+  'gemini-3.5-flash',
+  'gemini-3.5-flash-lite',
+  'gemini-3-flash-preview',
+  'gemini-3.8-flash',
+]
+
+function getGeminiCandidateModels(primaryModel) {
+  const normalized = (primaryModel || 'gemini-3.5-flash')
+    .replace(/^models\//, '')
+    // Map obsolete 2.5 / 1.5 defaults to 3.5-flash
+    .replace(/^gemini-(?:2\.5|1\.5|2\.0)-flash(?:-lite)?$/, 'gemini-3.5-flash')
+    .replace(/^gemini-(?:2\.5|1\.5|2\.0)-pro$/, 'gemini-3.5-flash')
+
+  const candidates = [normalized]
+  for (const fallback of GEMINI_FALLBACK_MODELS) {
+    if (!candidates.includes(fallback)) {
+      candidates.push(fallback)
+    }
+  }
+  return candidates
+}
+
 async function callGemini({ apiKey, model, systemInstruction, userInstruction }) {
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        systemInstruction: {
-          parts: [{ text: systemInstruction }],
-        },
-        contents: [
-          {
-            role: 'user',
-            parts: [{ text: userInstruction }],
-          },
-        ],
-        generationConfig: {
-          temperature: 0.7,
-        },
-      }),
-    },
-  )
-
-  const payload = await response.json()
-
-  if (!response.ok) {
-    throw new Error(payload?.error?.message || 'Gemini request failed.')
+  const key = apiKey?.trim() || process.env.GEMINI_API_KEY
+  if (!key) {
+    throw new Error('API key Gemini tidak ditemukan. Masukkan API key pada pengaturan.')
   }
 
-  const prompt = payload?.candidates?.[0]?.content?.parts?.[0]?.text?.trim()
-  if (!prompt) throw new Error('Gemini response is empty.')
+  const candidateModels = getGeminiCandidateModels(model)
+  let lastError = null
 
-  return prompt
+  for (const candidate of candidateModels) {
+    try {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${candidate}:generateContent?key=${key}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            systemInstruction: {
+              parts: [{ text: systemInstruction }],
+            },
+            contents: [
+              {
+                role: 'user',
+                parts: [{ text: userInstruction }],
+              },
+            ],
+            generationConfig: {
+              temperature: 0.7,
+            },
+          }),
+        },
+      )
+
+      const payload = await response.json()
+
+      if (!response.ok) {
+        const errMsg = payload?.error?.message || `Gemini API request failed (${response.status})`
+        lastError = new Error(errMsg)
+        if (
+          response.status === 404 ||
+          response.status === 503 ||
+          errMsg.includes('high demand') ||
+          errMsg.includes('no longer available')
+        ) {
+          continue
+        }
+        throw lastError
+      }
+
+      const prompt = payload?.candidates?.[0]?.content?.parts?.[0]?.text?.trim()
+      if (!prompt) throw new Error('Gemini response is empty.')
+
+      return prompt
+    } catch (err) {
+      lastError = err
+    }
+  }
+
+  throw lastError || new Error('Gagal memanggil API Gemini.')
 }
 
 // Vision API functions for Image-to-Prompt
-async function callOpenAIVision({ apiKey, model, systemInstruction, userInstruction, imageBase64 }) {
+async function callOpenAIVision({ apiKey, model, systemInstruction, userInstruction, imageBase64, temperature = 0.5 }) {
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -195,7 +244,7 @@ async function callOpenAIVision({ apiKey, model, systemInstruction, userInstruct
     },
     body: JSON.stringify({
       model,
-      temperature: 0.5,
+      temperature,
       response_format: { type: 'json_object' },
       messages: [
         { role: 'system', content: systemInstruction },
@@ -226,7 +275,7 @@ async function callOpenAIVision({ apiKey, model, systemInstruction, userInstruct
   return raw
 }
 
-async function callClaudeVision({ apiKey, model, systemInstruction, userInstruction, imageBase64 }) {
+async function callClaudeVision({ apiKey, model, systemInstruction, userInstruction, imageBase64, temperature = 0.5 }) {
   const match = imageBase64.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/)
   const mediaType = match ? match[1] : 'image/jpeg'
   const data = match ? match[2] : imageBase64
@@ -240,7 +289,8 @@ async function callClaudeVision({ apiKey, model, systemInstruction, userInstruct
     },
     body: JSON.stringify({
       model,
-      max_tokens: 1200,
+      max_tokens: 1500,
+      temperature,
       system: systemInstruction,
       messages: [
         {
@@ -274,54 +324,85 @@ async function callClaudeVision({ apiKey, model, systemInstruction, userInstruct
   return raw
 }
 
-async function callGeminiVision({ apiKey, model, systemInstruction, userInstruction, imageBase64 }) {
-  const match = imageBase64.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/)
-  const mimeType = match ? match[1] : 'image/jpeg'
-  const data = match ? match[2] : imageBase64
-
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        systemInstruction: {
-          parts: [{ text: systemInstruction }],
-        },
-        contents: [
-          {
-            role: 'user',
-            parts: [
-              {
-                inlineData: {
-                  mimeType,
-                  data,
-                },
-              },
-              {
-                text: userInstruction,
-              },
-            ],
-          },
-        ],
-        generationConfig: {
-          temperature: 0.4,
-          responseMimeType: 'application/json',
-        },
-      }),
-    },
-  )
-
-  const payload = await response.json()
-  if (!response.ok) {
-    throw new Error(payload?.error?.message || 'Gemini Vision request failed.')
+async function callGeminiVision({ apiKey, model, systemInstruction, userInstruction, imageBase64, temperature = 0.4 }) {
+  const key = apiKey?.trim() || process.env.GEMINI_API_KEY
+  if (!key) {
+    throw new Error('API key Gemini tidak ditemukan. Masukkan API key pada pengaturan.')
   }
 
-  const raw = payload?.candidates?.[0]?.content?.parts?.[0]?.text?.trim()
-  if (!raw) throw new Error('Gemini Vision returned empty response.')
-  return raw
+  const match = imageBase64.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/)
+  let mimeType = match ? match[1] : 'image/jpeg'
+  let data = match ? match[2] : imageBase64
+
+  // Gemini Vision requires bitmap formats (jpeg, png, webp, heic)
+  if (mimeType.includes('svg')) {
+    mimeType = 'image/png'
+  }
+
+  const candidateModels = getGeminiCandidateModels(model)
+  let lastError = null
+
+  for (const candidate of candidateModels) {
+    try {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${candidate}:generateContent?key=${key}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            systemInstruction: {
+              parts: [{ text: systemInstruction }],
+            },
+            contents: [
+              {
+                role: 'user',
+                parts: [
+                  {
+                    inlineData: {
+                      mimeType,
+                      data,
+                    },
+                  },
+                  {
+                    text: userInstruction,
+                  },
+                ],
+              },
+            ],
+            generationConfig: {
+              temperature,
+              responseMimeType: 'application/json',
+            },
+          }),
+        },
+      )
+
+      const payload = await response.json()
+      if (!response.ok) {
+        const errMsg = payload?.error?.message || `Gemini Vision request failed (${response.status})`
+        lastError = new Error(errMsg)
+        if (
+          response.status === 404 ||
+          response.status === 503 ||
+          errMsg.includes('high demand') ||
+          errMsg.includes('no longer available')
+        ) {
+          continue
+        }
+        throw lastError
+      }
+
+      const raw = payload?.candidates?.[0]?.content?.parts?.[0]?.text?.trim()
+      if (!raw) throw new Error('Gemini Vision returned empty response.')
+      return raw
+    } catch (err) {
+      lastError = err
+    }
+  }
+
+  throw lastError || new Error('Gagal memanggil Gemini Vision API.')
 }
 
 function parseVisionJsonResponse(rawText) {
@@ -358,6 +439,14 @@ app.get('/api/health', (_req, res) => {
   res.json({ ok: true, service: 'prompt-studio-api' })
 })
 
+app.get('/api/config', (_req, res) => {
+  res.json({
+    geminiConfigured: Boolean(process.env.GEMINI_API_KEY),
+    chatgptConfigured: Boolean(process.env.OPENAI_API_KEY),
+    claudeConfigured: Boolean(process.env.ANTHROPIC_API_KEY),
+  })
+})
+
 app.post('/api/generate', async (req, res) => {
   try {
     const {
@@ -372,7 +461,15 @@ app.post('/api/generate', async (req, res) => {
       mockupConfig,
     } = req.body ?? {}
 
-    if (!provider || !model || !apiKey) {
+    const resolvedApiKey =
+      apiKey?.trim() ||
+      (provider === 'gemini'
+        ? process.env.GEMINI_API_KEY
+        : provider === 'chatgpt'
+          ? process.env.OPENAI_API_KEY
+          : process.env.ANTHROPIC_API_KEY)
+
+    if (!provider || !model || !resolvedApiKey) {
       return res.status(400).json({ error: 'provider, model, dan apiKey wajib diisi.' })
     }
 
@@ -392,11 +489,11 @@ app.post('/api/generate', async (req, res) => {
     let prompt = ''
 
     if (provider === 'chatgpt') {
-      prompt = await callOpenAI({ apiKey, model, systemInstruction, userInstruction })
+      prompt = await callOpenAI({ apiKey: resolvedApiKey, model, systemInstruction, userInstruction })
     } else if (provider === 'claude') {
-      prompt = await callClaude({ apiKey, model, systemInstruction, userInstruction })
+      prompt = await callClaude({ apiKey: resolvedApiKey, model, systemInstruction, userInstruction })
     } else if (provider === 'gemini') {
-      prompt = await callGemini({ apiKey, model, systemInstruction, userInstruction })
+      prompt = await callGemini({ apiKey: resolvedApiKey, model, systemInstruction, userInstruction })
     } else {
       return res.status(400).json({ error: 'Provider tidak dikenali.' })
     }
@@ -417,9 +514,21 @@ app.post('/api/image-to-prompt', async (req, res) => {
       imageBase64,
       outputLanguage = 'en',
       targetGenerator = 'midjourney',
+      promptStrategy = 'detailed',
+      creativityLevel = 'balanced',
+      aspectRatioOverride = 'auto',
+      customFocus = '',
     } = req.body ?? {}
 
-    if (!provider || !model || !apiKey) {
+    const resolvedApiKey =
+      apiKey?.trim() ||
+      (provider === 'gemini'
+        ? process.env.GEMINI_API_KEY
+        : provider === 'chatgpt'
+          ? process.env.OPENAI_API_KEY
+          : process.env.ANTHROPIC_API_KEY)
+
+    if (!provider || !model || !resolvedApiKey) {
       return res.status(400).json({ error: 'provider, model, dan apiKey wajib diisi.' })
     }
 
@@ -427,17 +536,74 @@ app.post('/api/image-to-prompt', async (req, res) => {
       return res.status(400).json({ error: 'File gambar wajib diunggah.' })
     }
 
+    // Determine temperature based on creativity level
+    let temp = 0.5
+    if (creativityLevel === 'strict') temp = 0.2
+    else if (creativityLevel === 'creative') temp = 0.85
+
     const languageInstruction =
       outputLanguage === 'id'
-        ? 'Tulis prompt utama dan field breakdown dalam Bahasa Indonesia (parameter teknis AI seperti --ar, 85mm, softbox boleh tetap standar).'
+        ? 'Tulis prompt utama dan field breakdown dalam Bahasa Indonesia (parameter teknis AI seperti --ar, 85mm, softbox boleh tetap standar bahasa Inggris jika umum).'
         : 'Write the prompt and breakdown in English.'
+
+    // Strategy guidance tailored to user choice
+    let strategyInstruction = ''
+    switch (promptStrategy) {
+      case 'concise':
+        strategyInstruction = `Strategy: PUNCHY & CONCISE.
+Focus on high-density comma-separated keywords and essential style descriptors. Avoid verbose narrative filler. Perfect for quick generation in Midjourney/SDXL.`
+        break
+      case 'creative-remix':
+        strategyInstruction = `Strategy: CREATIVE REMIX & EXPANSION.
+Capture the visual essence of the artwork, then creatively elevate and remix the concept with cinematic depth, dynamic atmospheric details, and imaginative storytelling nuances while preserving its aesthetic core.`
+        break
+      case 'merch-apparel':
+        strategyInstruction = `Strategy: APPAREL & MERCHANDISE VECTOR READY.
+Tailor the prompt specifically for t-shirt graphics, screen-printing, and die-cut stickers. Emphasize bold vector linework, clean solid contours, high-contrast ink separation, vibrant color palette, and isolated clean background (ready for mockup placement).`
+        break
+      case 'photorealistic':
+        strategyInstruction = `Strategy: PHOTOREALISTIC CONVERSION.
+Transform the concept in the image into an ultra-realistic commercial photography shoot. Specify camera gear (85mm or 50mm f/1.8 lens), studio or cinematic lighting, authentic textures, micro-details, and realistic depth of field.`
+        break
+      case 'anime-stylized':
+        strategyInstruction = `Strategy: ANIME & MANGA STYLIZED.
+Optimize for anime key visuals and Niji models. Emphasize crisp cel-shading, dynamic linework, expressive character styling, atmospheric glow, particle effects, and Japanese anime aesthetic.`
+        break
+      case 'detailed':
+      default:
+        strategyInstruction = `Strategy: ULTRA-DETAILED VISUAL DNA.
+Produce an exhaustive, master-level prompt analyzing every facet: subject geometry, exact art medium (e.g. gouache, vector, oil paint), lighting temperature and rim-lighting, linework weight, color grading, and textures.`
+        break
+    }
+
+    // Target Generator formatting rules
+    let generatorRules = ''
+    if (targetGenerator === 'midjourney') {
+      const arTag = aspectRatioOverride !== 'auto' ? ` --ar ${aspectRatioOverride}` : ' --ar 1:1'
+      generatorRules = `Target Engine: Midjourney v6 / Niji 6.
+End the final prompt string with appropriate Midjourney parameters like "${arTag} --style raw --v 6.1" or appropriate niji flag.`
+    } else if (targetGenerator === 'flux') {
+      generatorRules = `Target Engine: Black Forest Labs FLUX.1.
+Use vivid, descriptive, natural conversational language without cryptic tag spam. FLUX responds best to rich scene descriptions.`
+    } else {
+      generatorRules = `Target Engine: Stable Diffusion XL / DALL-E 3.
+Use clear, highly descriptive prompts structured by subject, setting, art style, lighting, and quality modifiers.`
+    }
+
+    const customFocusInstruction = customFocus.trim()
+      ? `Special User Focus / Custom Request: "${customFocus.trim()}". Make sure this custom requirement is prominently highlighted in the prompt!`
+      : ''
 
     const systemInstruction = `You are an elite AI Art Director, Computer Vision analyst, and Image Prompt Engineer.
 Your task is to analyze the user's provided reference image in detail and reverse-engineer it into:
-1. A master-quality, vivid, highly-detailed prompt tailored for ${
-      targetGenerator === 'midjourney' ? 'Midjourney v6 / Flux / Stable Diffusion' : 'AI image generation'
-    } that can accurately recreate the artwork's subject, art medium, lighting, linework, color palette, camera framing, and aesthetic.
+1. A master-quality prompt tailored for the chosen AI image generator and analysis strategy.
 2. A structured breakdown of the image's attributes for the builder.
+
+${strategyInstruction}
+
+${generatorRules}
+
+${customFocusInstruction}
 
 Return ONLY a valid JSON object with the following schema:
 {
@@ -453,22 +619,22 @@ Return ONLY a valid JSON object with the following schema:
     "setting": "Background environment and scenery",
     "details": "Linework weight, stroke textures, finishing details",
     "negativePrompt": "Key elements to exclude to maintain the exact style",
-    "aspectRatio": "1:1"
+    "aspectRatio": "${aspectRatioOverride !== 'auto' ? aspectRatioOverride : '1:1'}"
   }
 }
 ${languageInstruction}
 No commentary, no markdown code block fences.`
 
-    const userInstruction = `Analyze this image thoroughly. Reverse-engineer its visual DNA, artistic style, medium, lighting, composition, and subject into a precise image prompt and structured breakdown.`
+    const userInstruction = `Analyze this image thoroughly according to the requested strategy and target generator. Reverse-engineer its visual DNA into a high-impact image prompt and structured breakdown.`
 
     let rawResult = ''
 
     if (provider === 'chatgpt') {
-      rawResult = await callOpenAIVision({ apiKey, model, systemInstruction, userInstruction, imageBase64 })
+      rawResult = await callOpenAIVision({ apiKey: resolvedApiKey, model, systemInstruction, userInstruction, imageBase64, temperature: temp })
     } else if (provider === 'claude') {
-      rawResult = await callClaudeVision({ apiKey, model, systemInstruction, userInstruction, imageBase64 })
+      rawResult = await callClaudeVision({ apiKey: resolvedApiKey, model, systemInstruction, userInstruction, imageBase64, temperature: temp })
     } else if (provider === 'gemini') {
-      rawResult = await callGeminiVision({ apiKey, model, systemInstruction, userInstruction, imageBase64 })
+      rawResult = await callGeminiVision({ apiKey: resolvedApiKey, model, systemInstruction, userInstruction, imageBase64, temperature: temp })
     } else {
       return res.status(400).json({ error: 'Provider tidak dikenali.' })
     }
