@@ -13,9 +13,7 @@ app.use(express.urlencoded({ limit: '25mb', extended: true }))
 
 function buildSystemInstruction(outputLanguage, mode = 'illustrator') {
   const languageInstruction =
-    outputLanguage === 'en'
-      ? 'Write in English.'
-      : 'Tulis dalam bahasa Indonesia yang natural dan profesional (istilah teknis fotografi/desain seperti aspect ratio, 85mm, softbox boleh tetap bahasa Inggris jika umum).'
+    'CRITICAL: The final generated prompt MUST ALWAYS be written in fluent, vivid, highly detailed, master-grade English. Even if the user brief or concept was submitted in Indonesian, translate and elevate every detail into professional English art terminology (render medium, lighting, camera lens, color grading, linework texture, composition). This guarantees maximum image generation quality and exclusivity across Midjourney v6, Flux, Stable Diffusion, and DALL-E 3.'
 
   if (mode === 'mockup') {
     return `You are a world-class commercial product mockup and apparel photographer & prompt engineer.
@@ -542,9 +540,7 @@ app.post('/api/image-to-prompt', async (req, res) => {
     else if (creativityLevel === 'creative') temp = 0.85
 
     const languageInstruction =
-      outputLanguage === 'id'
-        ? 'Tulis prompt utama dan field breakdown dalam Bahasa Indonesia (parameter teknis AI seperti --ar, 85mm, softbox boleh tetap standar bahasa Inggris jika umum).'
-        : 'Write the prompt and breakdown in English.'
+      'CRITICAL: The "prompt" property MUST ALWAYS be written in rich, high-impact, professional English. English prompts produce the most exclusive, superior, and accurate results in Midjourney, Flux, and SDXL. The "breakdown" fields can be in Indonesian or English, but the main "prompt" MUST ALWAYS be in English.'
 
     // Strategy guidance tailored to user choice
     let strategyInstruction = ''

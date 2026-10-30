@@ -31,9 +31,9 @@ const providerModels: Record<Provider, string[]> = {
 }
 
 const starterExamples = [
-  'Vector illustration of a Balinese dancer at sunset, clean geometric shapes, dramatic rim lighting, gold and violet palette, dribbble aesthetic --ar 1:1',
-  'Anime key visual of a cyber samurai on a rainy skyscraper in Neo Tokyo, dynamic cel shading, Makoto Shinkai atmosphere, lens flares --ar 16:9',
-  'Streetwear merchandise graphic of a roaring cyber tiger, thick white die-cut sticker border, bold screen-print lines, isolated on white --ar 1:1',
+  'Vector illustration portrait of a stylish female fashion model in emerald turtleneck, minimalist geometric facial features, clean linework, pastel background, Dribbble aesthetic --ar 1:1',
+  'Anime key visual portrait of a fierce young warrior with glowing azure eyes, wind-blown layered hair catching dramatic sunset rim lighting, Makoto Shinkai sky, crisp cel-shading --ar 16:9',
+  'Streetwear vector graphic portrait of an urban youth wearing oversized techwear hoodie and neon face mask, thick white die-cut sticker border, apparel merchandise ready --ar 1:1',
 ]
 
 const initialBuilder: BuilderState = {
@@ -47,7 +47,7 @@ const initialBuilder: BuilderState = {
   setting: '',
   details: '',
   negativePrompt: '',
-  outputLanguage: 'id',
+  outputLanguage: 'en',
   aspectRatio: '1:1',
 }
 
@@ -224,17 +224,17 @@ function App() {
 
   function buildLocalDraftPrompt() {
     const parts = [
-      builder.concept && `Konsep ilustrasi: ${builder.concept}`,
-      builder.subject && `Subjek: ${builder.subject}`,
-      builder.style && `Gaya visual: ${builder.style}`,
-      builder.mood && `Mood: ${builder.mood}`,
-      builder.camera && `Komposisi/Kamera: ${builder.camera}`,
-      builder.lighting && `Pencahayaan: ${builder.lighting}`,
-      builder.palette && `Palet warna: ${builder.palette}`,
-      builder.setting && `Lokasi/Latar: ${builder.setting}`,
-      builder.details && `Detail linework: ${builder.details}`,
-      builder.negativePrompt && `Hindari: ${builder.negativePrompt}`,
-      `Aspect ratio: ${builder.aspectRatio}`,
+      builder.concept && `Concept: ${builder.concept}`,
+      builder.subject && `Subject: ${builder.subject}`,
+      builder.style && `Visual style: ${builder.style}`,
+      builder.mood && `Mood & Atmosphere: ${builder.mood}`,
+      builder.camera && `Framing & Camera: ${builder.camera}`,
+      builder.lighting && `Lighting: ${builder.lighting}`,
+      builder.palette && `Color palette: ${builder.palette}`,
+      builder.setting && `Environment & Setting: ${builder.setting}`,
+      builder.details && `Linework & Details: ${builder.details}`,
+      builder.negativePrompt && `--no ${builder.negativePrompt}`,
+      `--ar ${builder.aspectRatio}`,
     ].filter(Boolean)
 
     return parts.join(', ')
@@ -361,11 +361,10 @@ function App() {
       <header className="hero-block">
         <div className="hero-title-row">
           <div>
-            <p className="kicker">Prompt & Mockup Studio</p>
-            <h1>AI Illustrator Prompt & Product Mockup Studio</h1>
+            <span className="brand-badge">⚡ AI Creative Studio</span>
+            <h1>AI Prompt & Mockup Studio</h1>
             <p className="lead">
-              Rancang prompt ilustrasi artistik dengan template gaya siap pakai, lampirkan contoh referensi,
-              hubungkan ke ChatGPT/Claude/Gemini, dan jadikan desain ke mockup produk (Kaos, Tas, Hoodie, Mug, Topi, Poster).
+              Rancang prompt ilustrasi master, ekstrak otomatis dari gambar contoh dengan Gemini AI, dan terapkan langsung ke mockup produk nyata.
             </p>
           </div>
         </div>
@@ -376,21 +375,21 @@ function App() {
             className={`tab-btn ${activeTab === 'prompt-builder' ? 'active' : ''}`}
             onClick={() => setActiveTab('prompt-builder')}
           >
-            🎨 1. Studio Prompt Ilustrator
+            🎨 1. Studio Prompt
           </button>
           <button
             type="button"
             className={`tab-btn ${activeTab === 'image-to-prompt' ? 'active' : ''}`}
             onClick={() => setActiveTab('image-to-prompt')}
           >
-            📸 2. Upload Gambar → Prompt Otomatis
+            📸 2. Upload Gambar → Prompt
           </button>
           <button
             type="button"
             className={`tab-btn ${activeTab === 'mockup-studio' ? 'active' : ''}`}
             onClick={() => setActiveTab('mockup-studio')}
           >
-            👕 3. Mockup Studio (Kaos, Tas, dll)
+            👕 3. Mockup Produk
           </button>
         </div>
       </header>
@@ -433,7 +432,8 @@ function App() {
                   className={`template-card ${activeTemplateId === template.id ? 'active' : ''}`}
                   onClick={() => handleApplyTemplate(template)}
                 >
-                  <div className="template-card-header" style={{ background: template.gradient }}>
+                  <div className="template-card-preview-box">
+                    {template.preview}
                     <span className="template-badge">{template.badge}</span>
                   </div>
                   <div className="template-card-body">
@@ -477,15 +477,15 @@ function App() {
                 </label>
 
                 <label>
-                  Bahasa Output
+                  Bahasa Prompt
                   <select
                     value={builder.outputLanguage}
                     onChange={(event) =>
                       updateBuilder('outputLanguage', event.target.value as BuilderState['outputLanguage'])
                     }
                   >
-                    <option value="id">Indonesia</option>
-                    <option value="en">English (Direkomendasikan)</option>
+                    <option value="en">English (Direkomendasikan - Kualitas Gambar Terbaik & Eksklusif)</option>
+                    <option value="id">Indonesia (dengan prompt English)</option>
                   </select>
                 </label>
               </div>
